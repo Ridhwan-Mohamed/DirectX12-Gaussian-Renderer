@@ -1,0 +1,17 @@
+# Visual Studio and CMake output
+.vs/
+out/
+build/
+CMakeUserPresets.json
+*.user
+*.suo
+
+# Generated or temporary project artifacts
+tmp/
+output/
+
+# Compiler output
+*.obj
+*.pdb
+*.ilk
+*.exe
