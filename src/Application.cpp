@@ -1,5 +1,6 @@
 #include "Application.h"
 
+#include "PlyGaussianLoader.h"
 #include "Win32Utils.h"
 
 #include <windowsx.h>
@@ -7,11 +8,15 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
-Application::Application(HINSTANCE instance) noexcept
+Application::Application(
+    HINSTANCE instance,
+    std::filesystem::path scenePath)
     : instance_(instance),
       camera_(static_cast<float>(clientWidth_) /
-              static_cast<float>(clientHeight_))
+              static_cast<float>(clientHeight_)),
+      scenePath_(std::move(scenePath))
 {
 }
 
@@ -19,6 +24,10 @@ int Application::Run(int showCommand)
 {
     RegisterWindowClass();
     CreateApplicationWindow();
+
+    scene_ = PlyGaussianLoader::Load(scenePath_);
+    const std::string sceneReport = BuildGaussianSceneReport(scene_);
+    OutputDebugStringA(sceneReport.c_str());
 
     renderer_.Initialize(window_, clientWidth_, clientHeight_);
 
@@ -335,6 +344,7 @@ void Application::UpdateWindowTitle(double deltaSeconds)
     std::wostringstream title;
     title << L"DirectX 12 Gaussian Renderer | "
           << renderer_.AdapterName()
+          << L" | " << scene_.gaussians.size() << L" Gaussians"
           << L" | " << std::fixed << std::setprecision(1)
           << framesPerSecond << L" FPS"
           << L" | CPU " << std::setprecision(2)

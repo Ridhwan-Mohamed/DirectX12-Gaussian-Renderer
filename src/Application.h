@@ -2,16 +2,20 @@
 
 #include "Camera.h"
 #include "D3D12Renderer.h"
+#include "GaussianScene.h"
 
 #include <Windows.h>
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 
 class Application
 {
 public:
-    explicit Application(HINSTANCE instance) noexcept;
+    Application(
+        HINSTANCE instance,
+        std::filesystem::path scenePath);
     int Run(int showCommand);
 
 private:
@@ -40,6 +44,8 @@ private:
     HWND window_ = nullptr;
     D3D12Renderer renderer_;
     Camera camera_;
+    std::filesystem::path scenePath_;
+    GaussianScene scene_;
 
     std::uint32_t clientWidth_ = 1280;
     std::uint32_t clientHeight_ = 720;
