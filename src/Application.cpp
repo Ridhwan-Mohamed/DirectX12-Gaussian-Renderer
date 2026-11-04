@@ -2,6 +2,7 @@
 
 #include "PlyGaussianLoader.h"
 #include "Win32Utils.h"
+#include "GpuGaussian.h"
 
 #include <windowsx.h>
 
@@ -30,6 +31,29 @@ int Application::Run(int showCommand)
     OutputDebugStringA(sceneReport.c_str());
 
     renderer_.Initialize(window_, clientWidth_, clientHeight_);
+
+    {
+        const std::vector<GpuGaussian> gpuGaussians =
+            PackGaussianScene(scene_);
+
+        renderer_.UploadGaussianScene(gpuGaussians);
+    }
+
+    const double gaussianBufferMiB =
+        static_cast<double>(renderer_.GaussianBufferSizeBytes()) /
+        (1024.0 * 1024.0);
+    std::ostringstream uploadReport;
+    uploadReport << "Gaussian GPU scene uploaded\n"
+                 << "  count: " << renderer_.GaussianCount() << '\n'
+                 << "  stride: " << sizeof(GpuGaussian) << " bytes\n"
+                 << "  resident buffer: "
+                 << renderer_.GaussianBufferSizeBytes() << " bytes ("
+                 << std::fixed << std::setprecision(2)
+                 << gaussianBufferMiB << " MiB)\n"
+                 << "  packed CPU staging: released after upload\n"
+                 << "  upload staging: released after fence completion\n"
+                 << "  SRV: one shader-visible structured-buffer descriptor\n";
+    OutputDebugStringA(uploadReport.str().c_str());
 
     ShowWindow(window_, showCommand);
     UpdateWindow(window_);
@@ -340,12 +364,17 @@ void Application::UpdateWindowTitle(double deltaSeconds)
         static_cast<double>(statisticsFrameCount_) /
         statisticsSeconds_;
     const DirectX::XMFLOAT3 position = camera_.Position();
+    const double gaussianBufferMiB =
+        static_cast<double>(renderer_.GaussianBufferSizeBytes()) /
+        (1024.0 * 1024.0);
 
     std::wostringstream title;
     title << L"DirectX 12 Gaussian Renderer | "
           << renderer_.AdapterName()
           << L" | " << scene_.gaussians.size() << L" Gaussians"
-          << L" | " << std::fixed << std::setprecision(1)
+          << L" | Scene " << std::fixed << std::setprecision(2)
+          << gaussianBufferMiB << L" MiB"
+          << L" | " << std::setprecision(1)
           << framesPerSecond << L" FPS"
           << L" | CPU " << std::setprecision(2)
           << renderer_.CpuFrameMilliseconds() << L" ms"

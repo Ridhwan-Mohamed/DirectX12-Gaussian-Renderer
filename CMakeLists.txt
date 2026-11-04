@@ -29,6 +29,8 @@ add_executable(GaussianRenderer WIN32
     src/D3D12Renderer.cpp
     src/D3D12Renderer.h
     src/Win32Utils.h
+    src/GpuGaussian.h
+    src/GpuGaussian.cpp
 )
 
 target_compile_features(GaussianRenderer PRIVATE cxx_std_20)
@@ -84,6 +86,8 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(GaussianLoaderTests
         tests/GaussianLoaderTests.cpp
+        src/GpuGaussian.cpp
+        src/GpuGaussian.h
     )
     target_compile_features(GaussianLoaderTests PRIVATE cxx_std_20)
     target_link_libraries(GaussianLoaderTests PRIVATE GaussianSceneCore)

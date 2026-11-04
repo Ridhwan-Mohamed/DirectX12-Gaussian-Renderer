@@ -8,6 +8,9 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <span>
+
+#include "GpuGaussian.h"
 
 class D3D12Renderer
 {
@@ -24,6 +27,8 @@ public:
         HWND window,
         std::uint32_t width,
         std::uint32_t height);
+    void UploadGaussianScene(
+        std::span<const GpuGaussian> gaussians);
     void Resize(std::uint32_t width, std::uint32_t height);
     void Render();
     void WaitForGpu();
@@ -34,6 +39,8 @@ public:
     [[nodiscard]] double CpuFrameMilliseconds() const noexcept;
     [[nodiscard]] double GpuFrameMilliseconds() const noexcept;
     [[nodiscard]] const std::wstring& AdapterName() const noexcept;
+    [[nodiscard]] std::uint32_t GaussianCount() const noexcept;
+    [[nodiscard]] std::uint64_t GaussianBufferSizeBytes() const noexcept;
 
 private:
     struct FrameContext
@@ -53,6 +60,7 @@ private:
     void WaitForFence(std::uint64_t fenceValue);
     void ReadCompletedTimestamp(std::uint32_t frameIndex) noexcept;
     void ReleaseRenderTargets() noexcept;
+    void CreateGaussianShaderResourceView();
 
     Microsoft::WRL::ComPtr<IDXGIFactory7> factory_;
     Microsoft::WRL::ComPtr<IDXGIAdapter4> adapter_;
@@ -64,6 +72,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     Microsoft::WRL::ComPtr<ID3D12QueryHeap> timestampQueryHeap_;
     Microsoft::WRL::ComPtr<ID3D12Resource> timestampReadback_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> gaussianBuffer_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> shaderResourceHeap_;
+    std::uint32_t gaussianCount_ = 0;
+    std::uint64_t gaussianBufferSizeBytes_ = 0;
 
     std::array<FrameContext, FrameCount> frames_{};
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, FrameCount>

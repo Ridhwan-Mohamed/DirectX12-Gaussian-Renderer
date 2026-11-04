@@ -7,7 +7,7 @@ vision experiments.
 
 ## Current status
 
-Milestones 01 and 02 are complete. The current executable provides:
+Milestones 01 through 03 are complete. The current executable provides:
 
 - a resizable, DPI-aware Win32 window;
 - D3D12 debug-layer support in Debug builds;
@@ -20,7 +20,11 @@ Milestones 01 and 02 are complete. The current executable provides:
 - a free-fly camera ready for the first render pipeline;
 - property-by-name binary little-endian PLY loading;
 - scale, opacity, quaternion, and SH-layout decoding;
-- source bounds, scene recentering, diagnostics, and fixture tests.
+- source bounds, scene recentering, diagnostics, and fixture tests;
+- an explicit 240-byte CPU-to-GPU Gaussian record;
+- a one-time upload into a persistent default-heap structured buffer;
+- a shader-visible SRV for all resident Gaussians;
+- reported Gaussian count, stride, and resident scene-buffer size.
 
 There is intentionally no Gaussian shader yet. The first HLSL and graphics
 pipeline state will be added as a dedicated, explained milestone.
@@ -79,19 +83,17 @@ src/D3D12Renderer.*    D3D12 device, swap chain, commands, fences, and timing
 src/Camera.*           View/projection state and free-fly movement
 src/GaussianScene.*    Decoded CPU-side scene representation and diagnostics
 src/PlyGaussianLoader.* Property-driven PLY parsing and validation
+src/GpuGaussian.*      Explicit packed CPU-to-GPU scene contract
 assets/scenes/         Small correctness fixtures
 PROJECT_ROADMAP.md     Renderer milestones and learning goals
 ```
 
 ## Immediate next step
 
-Milestone 03 defines a deliberately separate packed GPU record and uploads the
-decoded scene into a persistent structured buffer. Then the first Gaussian
-pipeline will be added as a focused lesson:
+Milestone 04 adds the first Gaussian graphics pipeline as a focused lesson:
 
-1. define the CPU-to-GPU Gaussian contract;
-2. create and upload the persistent structured buffer;
-3. compile the first Gaussian vertex and pixel shaders with DXC;
-4. generate one quad per Gaussian with `SV_VertexID` and `SV_InstanceID`;
-5. project covariance and evaluate elliptical falloff;
-6. sort on the CPU and alpha blend the first recognizable image.
+1. compile the first Gaussian vertex and pixel shaders with DXC;
+2. define the root signature and graphics pipeline state;
+3. generate one quad per Gaussian with `SV_VertexID` and `SV_InstanceID`;
+4. project covariance and evaluate elliptical falloff;
+5. sort on the CPU and alpha blend the first recognizable image.

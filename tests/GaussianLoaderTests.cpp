@@ -1,4 +1,5 @@
 #include "GaussianScene.h"
+#include "GpuGaussian.h"
 #include "PlyGaussianLoader.h"
 
 #include <chrono>
@@ -132,6 +133,52 @@ int main(int argumentCount, char** arguments)
                 statistics.minimumScale.y > 0.0f &&
                 statistics.minimumScale.z > 0.0f,
             "decoded scale is not positive");
+
+        const std::vector<GpuGaussian> packedGaussians =
+            PackGaussianScene(scene);
+        Expect(
+            packedGaussians.size() == scene.gaussians.size(),
+            "packed Gaussian count mismatch");
+        Expect(
+            packedGaussians.size() * sizeof(GpuGaussian) == 4'084'800,
+            "packed Gaussian byte count mismatch");
+
+        const GpuGaussian& firstPacked = packedGaussians.front();
+        ExpectNear(
+            firstPacked.position.x,
+            first.position.x,
+            0.0f,
+            "packed position X");
+        ExpectNear(
+            firstPacked.opacity,
+            first.opacity,
+            0.0f,
+            "packed opacity");
+        ExpectNear(
+            firstPacked.scale.z,
+            first.scale.z,
+            0.0f,
+            "packed scale Z");
+        ExpectNear(
+            firstPacked.rotationWxyz.x,
+            first.rotation.w,
+            0.0f,
+            "packed quaternion W");
+        ExpectNear(
+            firstPacked.rotationWxyz.w,
+            first.rotation.z,
+            0.0f,
+            "packed quaternion Z");
+        ExpectNear(
+            firstPacked.sphericalHarmonics[0].x,
+            first.sphericalHarmonics[0].x,
+            0.0f,
+            "packed DC red coefficient");
+        ExpectNear(
+            firstPacked.sphericalHarmonics[15].z,
+            first.sphericalHarmonics[15].z,
+            0.0f,
+            "packed degree-three blue coefficient");
 
         const auto uniqueSuffix =
             std::chrono::steady_clock::now().time_since_epoch().count();

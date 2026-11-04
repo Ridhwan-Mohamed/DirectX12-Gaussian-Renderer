@@ -5,6 +5,7 @@
 #include <chrono>
 #include <limits>
 #include <stdexcept>
+#include <cstring>
 
 using Microsoft::WRL::ComPtr;
 
@@ -27,12 +28,15 @@ namespace
         return barrier;
     }
 
-    D3D12_HEAP_PROPERTIES ReadbackHeapProperties() noexcept
+    D3D12_HEAP_PROPERTIES HeapProperties(
+        D3D12_HEAP_TYPE type) noexcept
     {
         D3D12_HEAP_PROPERTIES properties{};
-        properties.Type = D3D12_HEAP_TYPE_READBACK;
-        properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        properties.Type = type;
+        properties.CPUPageProperty =
+            D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        properties.MemoryPoolPreference =
+            D3D12_MEMORY_POOL_UNKNOWN;
         properties.CreationNodeMask = 1;
         properties.VisibleNodeMask = 1;
         return properties;
@@ -391,7 +395,7 @@ void D3D12Renderer::CreateTimestampResources()
     const std::uint64_t byteCount =
         sizeof(std::uint64_t) * FrameCount * 2;
     const D3D12_HEAP_PROPERTIES heapProperties =
-        ReadbackHeapProperties();
+        HeapProperties(D3D12_HEAP_TYPE_READBACK);
     const D3D12_RESOURCE_DESC resourceDescription =
         BufferDescription(byteCount);
 
@@ -416,6 +420,229 @@ void D3D12Renderer::CreateTimestampResources()
     win32::ThrowIfFailed(
         commandQueue_->GetTimestampFrequency(&timestampFrequency_),
         "ID3D12CommandQueue::GetTimestampFrequency");
+}
+
+void D3D12Renderer::CreateGaussianShaderResourceView()
+{
+    if (!gaussianBuffer_ || gaussianCount_ == 0)
+    {
+        throw std::logic_error(
+            "Cannot create a Gaussian SRV without an uploaded scene");
+    }
+
+    D3D12_DESCRIPTOR_HEAP_DESC heapDescription{};
+
+    heapDescription.Type =
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+
+    heapDescription.NumDescriptors = 1;
+
+    heapDescription.Flags =
+        D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    win32::ThrowIfFailed(
+        device_->CreateDescriptorHeap(
+            &heapDescription,
+            IID_PPV_ARGS(&shaderResourceHeap_)),
+        "Create Gaussian shader-resource heap");
+
+    shaderResourceHeap_->SetName(
+        L"Gaussian shader-resource heap");
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC viewDescription{};
+
+    viewDescription.Shader4ComponentMapping =
+        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    viewDescription.Format = DXGI_FORMAT_UNKNOWN;
+
+    viewDescription.ViewDimension =
+        D3D12_SRV_DIMENSION_BUFFER;
+
+    viewDescription.Buffer.FirstElement = 0;
+
+    viewDescription.Buffer.NumElements =
+        gaussianCount_;
+
+    viewDescription.Buffer.StructureByteStride =
+        sizeof(GpuGaussian);
+
+    viewDescription.Buffer.Flags =
+        D3D12_BUFFER_SRV_FLAG_NONE;
+
+    device_->CreateShaderResourceView(
+        gaussianBuffer_.Get(),
+        &viewDescription,
+        shaderResourceHeap_->
+        GetCPUDescriptorHandleForHeapStart());
+}
+
+void D3D12Renderer::UploadGaussianScene(
+    std::span<const GpuGaussian> gaussians)
+{
+    if (!initialized_)
+    {
+        throw std::logic_error(
+            "UploadGaussianScene requires an initialized renderer");
+    }
+
+    if (gaussians.empty())
+    {
+        throw std::invalid_argument(
+            "Cannot upload an empty Gaussian scene");
+    }
+
+    if (gaussians.size() >
+        std::numeric_limits<std::uint32_t>::max())
+    {
+        throw std::overflow_error(
+            "Gaussian count exceeds the renderer limit");
+    }
+
+    WaitForGpu();
+
+    gaussianCount_ =
+        static_cast<std::uint32_t>(gaussians.size());
+
+    gaussianBufferSizeBytes_ =
+        static_cast<std::uint64_t>(gaussians.size_bytes());
+
+    const D3D12_RESOURCE_DESC bufferDescription =
+        BufferDescription(gaussianBufferSizeBytes_);
+
+    const D3D12_HEAP_PROPERTIES defaultHeap =
+        HeapProperties(D3D12_HEAP_TYPE_DEFAULT);
+
+    win32::ThrowIfFailed(
+        device_->CreateCommittedResource(
+            &defaultHeap,
+            D3D12_HEAP_FLAG_NONE,
+            &bufferDescription,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&gaussianBuffer_)),
+        "Create Gaussian default buffer");
+
+    gaussianBuffer_->SetName(
+        L"Persistent Gaussian scene buffer");
+
+    Microsoft::WRL::ComPtr<ID3D12Resource>
+        uploadBuffer;
+
+    const D3D12_HEAP_PROPERTIES uploadHeap =
+        HeapProperties(D3D12_HEAP_TYPE_UPLOAD);
+
+    win32::ThrowIfFailed(
+        device_->CreateCommittedResource(
+            &uploadHeap,
+            D3D12_HEAP_FLAG_NONE,
+            &bufferDescription,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&uploadBuffer)),
+        "Create Gaussian upload buffer");
+
+    uploadBuffer->SetName(
+        L"Temporary Gaussian upload buffer");
+
+    void* mappedMemory = nullptr;
+
+    const D3D12_RANGE noCpuReads{ 0, 0 };
+
+    win32::ThrowIfFailed(
+        uploadBuffer->Map(
+            0,
+            &noCpuReads,
+            &mappedMemory),
+        "Map Gaussian upload buffer");
+
+    std::memcpy(
+        mappedMemory,
+        gaussians.data(),
+        static_cast<std::size_t>(
+            gaussianBufferSizeBytes_));
+
+    const D3D12_RANGE writtenRange{
+        0,
+        static_cast<SIZE_T>(
+            gaussianBufferSizeBytes_)
+    };
+
+    uploadBuffer->Unmap(
+        0,
+        &writtenRange);
+
+    FrameContext& uploadFrame = frames_[0];
+
+    win32::ThrowIfFailed(
+        uploadFrame.commandAllocator->Reset(),
+        "Reset Gaussian upload allocator");
+
+    win32::ThrowIfFailed(
+        commandList_->Reset(
+            uploadFrame.commandAllocator.Get(),
+            nullptr),
+        "Reset Gaussian upload command list");
+
+    commandList_->CopyBufferRegion(
+        gaussianBuffer_.Get(),
+        0,
+        uploadBuffer.Get(),
+        0,
+        gaussianBufferSizeBytes_);
+
+    constexpr D3D12_RESOURCE_STATES shaderResourceState =
+        static_cast<D3D12_RESOURCE_STATES>(
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    D3D12_RESOURCE_BARRIER readyForShaders =
+        TransitionBarrier(
+            gaussianBuffer_.Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            shaderResourceState);
+
+    commandList_->ResourceBarrier(
+        1,
+        &readyForShaders);
+
+    win32::ThrowIfFailed(
+        commandList_->Close(),
+        "Close Gaussian upload command list");
+
+    ID3D12CommandList* commandLists[] = {
+        commandList_.Get()
+    };
+
+    commandQueue_->ExecuteCommandLists(
+        1,
+        commandLists);
+
+    WaitForGpu();
+
+    // The copy is complete, so the CPU-visible staging allocation is no
+    // longer needed. The default-heap buffer remains resident.
+    uploadBuffer.Reset();
+
+    if (gaussianBuffer_->GetDesc().Width != gaussianBufferSizeBytes_)
+    {
+        throw std::runtime_error(
+            "Gaussian GPU buffer size does not match the packed scene");
+    }
+
+    CreateGaussianShaderResourceView();
+
+    const D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDescription =
+        shaderResourceHeap_->GetDesc();
+    if (descriptorHeapDescription.NumDescriptors != 1 ||
+        descriptorHeapDescription.Type !=
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+        (descriptorHeapDescription.Flags &
+            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) == 0)
+    {
+        throw std::runtime_error(
+            "Gaussian shader-resource heap validation failed");
+    }
 }
 
 void D3D12Renderer::Render()
@@ -672,4 +899,16 @@ double D3D12Renderer::GpuFrameMilliseconds() const noexcept
 const std::wstring& D3D12Renderer::AdapterName() const noexcept
 {
     return adapterName_;
+}
+
+std::uint32_t
+D3D12Renderer::GaussianCount() const noexcept
+{
+    return gaussianCount_;
+}
+
+std::uint64_t
+D3D12Renderer::GaussianBufferSizeBytes() const noexcept
+{
+    return gaussianBufferSizeBytes_;
 }
